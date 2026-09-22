@@ -1,0 +1,108 @@
+# ======================================================
+# Project Configuration
+# Multi-reach CIR forecasting (baseline LSTM + recursive inference)
+# ======================================================
+
+paths:
+  data:
+    raw_sediment_dir: "./data/raw_data/sed"
+    sed_qc_dir: "./data/processed/sed_preprocessing"
+    cir_daily: "./data/processed/student_t_smoothing/reach_daily_studentt.csv"
+    exo_input: "./data/processed/exo_input/preprocessed_input_0620_discharge.csv"
+    gsa_top: "./data/processed/exo_input/gsa_top_0620.csv"
+  outputs:
+    models: "./saved_models/"
+    ml_input: "./data/processed/ml_input/"
+    results: "./results/"
+
+# ======================================================
+# Upstream preprocessing (raw survey volume -> QC'd interval CIR ->
+# Student's-t Kalman-smoothed daily CIR/volume). See
+# preprocess_sedimentation.py and student_t_kalman_smoother.py.
+# ======================================================
+upstream_preprocessing:
+  run_if_missing: true   # if cir_daily (above) doesn't exist yet, run both scripts before the ML pipeline
+  force_rerun: false     # set true to always regenerate, even if cir_daily already exists
+
+# ======================================================
+# Column names
+# ======================================================
+columns:
+  cir_target: "CIR_studentt_daily"      # volume-derived, Student's-t Kalman-smoothed CIR
+  volume_target: "volume_studentt_daily"
+
+# ======================================================
+# Windowing / features
+# ======================================================
+windows:
+  input_window_size: 30      # days of history used as input
+  output_window_size: 10     # days forecast ahead (independent of input length)
+  batch_size: 32
+
+features:
+  top_n_exo_features: 5       # discharge stations kept, ranked by gsa_top's max_value
+
+# ======================================================
+# Regional aggregation
+# ======================================================
+# If enabled, the reaches listed under reach_ids are summed into ONE
+# regional-total CIR/volume series (see preprocessing/regional.py) before
+# windowing/training -- the model then forecasts the SWP region's
+# cumulated sediment volume directly, instead of forecasting each reach
+# individually. If reach_ids is empty, all reaches found in cir_daily are
+# used. If disabled, the pipeline runs per-reach as before.
+region:
+  enabled: false
+  region_id: "SWP_ALL"
+  reach_ids: []
+
+# ======================================================
+# Leading-artifact trimming (per reach)
+# ======================================================
+leading_trim:
+  mad_multiplier: 10.0
+  consecutive_required: 3
+
+# ======================================================
+# Train / test split
+# ======================================================
+split:
+  test_start_date: "2022-01-01"   # a sample is test iff its OUTPUT window starts on/after this date
+
+# ======================================================
+# Baseline LSTM hyperparameters
+# ======================================================
+model:
+  lstm:
+    hidden_size: 64
+    num_layers: 3
+    dropout: 0.2
+
+training:
+  learning_rate: 0.0001
+  weight_decay: 0.0
+  n_epochs: 300
+  batch_size: 64
+  val_fraction: 0.1          # most recent fraction of TRAIN dates, held out for validation
+  early_stopping_patience: 300
+  seed: 42
+
+# ======================================================
+# Training loss (Zeng et al. 2026, Eq. 36-37): optionally weight windows
+# that contain a CIR zero crossing (a sedimentation trend reversal) more
+# heavily than windows that don't, so the model pays extra attention to
+# these operationally important transition points. w_high=10, w_low=1 was
+# the paper's grid-search optimum (Table 9). Set weighted_zero_crossing to
+# false to fall back to plain, unweighted MSE.
+# ======================================================
+loss:
+  weighted_zero_crossing: true
+  w_low: 1.0
+  w_high: 10.0
+
+# ======================================================
+# Recursive multi-step inference
+# ======================================================
+recursive_inference:
+  n_iterations: 3            # total horizon = n_iterations * output_window_size days
+  overview_stride_multiplier: 5   # sample one forecast start every N output-windows

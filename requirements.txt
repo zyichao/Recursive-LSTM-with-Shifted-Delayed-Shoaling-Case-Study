@@ -1,0 +1,19 @@
+numpy
+pandas
+scipy
+scikit-learn
+# On Apple Silicon, torch>=2.0 is required for MPS (GPU) acceleration --
+# some older/conda-distributed torch builds report `mps_available: False`
+# even on an M1/M2/M3 Mac because they weren't compiled with the Metal
+# backend, silently falling back to (much slower) CPU training. Verify with:
+#   python -c "import torch; print(torch.backends.mps.is_built(), torch.backends.mps.is_available())"
+torch>=2.0
+joblib
+PyYAML
+matplotlib
+
+# Upstream preprocessing (preprocess_sedimentation.py) uses cvxpy for its
+# robust trend filter (Huber loss + L1 first/second-difference penalties) if
+# available, else falls back to a scipy-based approximation automatically.
+# Install cvxpy for exact fidelity with the reference pipeline.
+cvxpy
